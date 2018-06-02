@@ -41,6 +41,8 @@
 
       ctx.strokeStyle = 'black';
       var y = 15;
+      ctx.font = '12px sans-serif';
+      ctx.textAlign='left';
       ctx.strokeText('FPS: ' + Math.floor(1000 / elapsed), 10, y);
       ctx.strokeText('Commands: ', 10, y += 15);
       ctx.strokeText('!spawn', 10, y += 15);
@@ -54,15 +56,27 @@
       return particle.dx !== 0 || particle.dy !== 0 || particle.ddx !== 0 || particle.ddy !== 0;
     }
 
+    function isSolidGround(ctx, x, y) {
+      var data = ctx.getImageData(x, y, 1, 1).data;
+      return !(data[0] === 255 && data[1] === 255 && data[2] === 255);
+    }
+
+    function removeParticle(particle) {
+      particle.x = -1000;
+      var idx = particles.indexOf(particle);
+      if (idx !== -1) {
+        particles.splice(idx, 1);
+      }
+    }
+
     function moveParticle(ctx, particles, particle, elapsed) {
       var i;
-      var l = Math.max(Math.abs(particle.dx * elapsed), Math.abs(particle.dy * elapsed));
+      var l = Math.min(Math.max(Math.abs(particle.dx * elapsed), Math.abs(particle.dy * elapsed)), 1);
       if (l === 0) {
         particle.dx += particle.ddx * elapsed;
         particle.dy += particle.ddy * elapsed;
         return false;
       }
-      var data;
       var x = particle.x;
       var y = particle.y;
       var stopped = false;
@@ -70,11 +84,13 @@
         x = particle.x + particle.dx * elapsed * (i / l);
         y = particle.y + particle.dy * elapsed * (i / l);
         if (!isInBounds(x, y)) {
-          particles.splice(particles.indexOf(particle), 1);
+          if (particle.type === 'player') {
+            sentMessageToChat(particle.displayName + ' flew out of bounds');
+          }
+          removeParticle(particle);
           return false;
         }
-        data = ctx.getImageData(x, y, 1, 1).data;
-        if (!(data[0] === 255 && data[1] === 255 && data[2] === 255)) {
+        if (isSolidGround(ctx, x, y)) {
           stopped = true;
           break;
         }
@@ -103,33 +119,45 @@
         if (stopped && particle.type === 'bomb') {
           explodeBomb(ctx, ctx2, particles, particle);
         }
-      } else {
-        particle.ddy = gravity;
       }
+      particle.ddy = gravity;
     }
 
     function explodeBomb(ctx, ctx2, particles, bomb) {
       var radius = 30;
       var squaredRadius = radius * radius;
-      var squaredDistance, i, l, particle, dx, dy;
-
-      particles.splice(particles.indexOf(bomb), 1);
+      var squaredDistance, i, particle, dx, dy, distance, impactFactor;
 
       ctx2.beginPath();
       ctx2.arc(bomb.x, bomb.y, radius, 0, 2 * Math.PI, false);
       ctx2.fillStyle = 'white';
       ctx2.fill();
 
-      for (i = 0, l = particles.length; i < l; ++i) {
+      for (i = 0; i < particles.length; ++i) {
         particle = particles[i];
         dx = particle.x - bomb.x;
         dy = particle.y - bomb.y;
         squaredDistance = dx * dx + dy * dy;
         if (squaredDistance < squaredRadius) {
-          particle.dx = (dx - radius) / radius * maxBombKnockback;
-          particle.dy = (dy - radius) / radius * maxBombKnockback;
+          distance = Math.sqrt(squaredDistance);
+          impactFactor = (radius - distance) / radius;
+          particle.dx = (dx / distance) * impactFactor * maxBombKnockback;
+          particle.dy = (dy / distance) * impactFactor * maxBombKnockback;
+          if (particle.type === 'player') {
+            particle.health -= impactFactor;
+            if (particle.health <= 0) {
+              if (bomb.source === particle) {
+                sentMessageToChat(particle.displayName + ' didn\'t realise friendly fire is on');
+              } else {
+                sentMessageToChat(particle.displayName + ' got pwned by ' + bomb.source.displayName)
+              }
+              removeParticle(particle);
+            }
+          }
         }
       }
+
+      removeParticle(bomb);
     }
 
     function drawParticle(ctx, particle) {
@@ -151,8 +179,14 @@
     function drawPlayer(ctx, player) {
       ctx.strokeStyle = player.color;
       // name
-      ctx.font = '12px sans-serif';
-      ctx.strokeText(player.username, player.x, player.y - 25);
+      ctx.font = '9px sans-serif';
+      ctx.textAlign='center';
+      ctx.strokeText(player.username, player.x, player.y - 34);
+      // health bar
+      ctx.fillStyle = 'red';
+      ctx.fillRect(player.x - 10, player.y - 28, 20, 4);
+      ctx.fillStyle = 'green';
+      ctx.fillRect(player.x - 10, player.y - 28, 20 * player.health, 4);
       // legs
       ctx.beginPath();
       ctx.moveTo(player.x + 2, player.y);
@@ -273,12 +307,14 @@
         user.ddy = gravity;
         user.health = 1;
         particles.push(user);
+        sentMessageToChat(user.displayName + ' joined the game');
       }
     }
 
     function fire(user, angle, power) {
       particles.splice(0, 0, {
         type: 'bomb',
+        source: user,
         x: user.x,
         y: user.y - 25,
         dx: Math.cos((90 - angle) * Math.PI / 180) * power * maxPower / 100,
