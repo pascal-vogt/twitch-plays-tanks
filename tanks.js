@@ -290,6 +290,16 @@
       if (m) {
         fire(user, parseInt(m[1], 10), parseInt(m[2], 10));
       }
+      r = /^!fl\s+(-?\d+)\s+(\d+)\s*$/;
+      m = command.match(r);
+      if (m) {
+        fire(user, -parseInt(m[1], 10), parseInt(m[2], 10));
+      }
+      r = /^!fr\s+(-?\d+)\s+(\d+)\s*$/;
+      m = command.match(r);
+      if (m) {
+        fire(user, parseInt(m[1], 10), parseInt(m[2], 10));
+      }
 
     }
 
